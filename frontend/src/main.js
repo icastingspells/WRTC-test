@@ -1,12 +1,16 @@
 import "./style.css";
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:3000");
+const socket = io("https://2.27.29.74:3000");
 
 const connectBtn = document.getElementById("connectBtn");
 const localLevel = document.getElementById("localmic");
 const remoteLevel = document.getElementById("remotemic");
 const remoteAudio = document.getElementById("remoteAudio");
+
+const res = await fetch("https://2.27.29.74:3000/api/ice-config");
+const config = await res.json();
+
 
 let localStream;
 let peer;
@@ -51,18 +55,7 @@ function visualizeAudio(stream, element) {
 }
 
 function createPeer() {
-  peer = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: "stun:stun.l.google.com:19302",
-      },
-      {
-        urls: "turn:192.168.1.12:3478",
-        username: "test",
-        credential: "test123",
-      },
-    ],
-  });
+  peer = new RTCPeerConnection(config);
 
   // добавляем микрофон
   localStream.getTracks().forEach((track) => {

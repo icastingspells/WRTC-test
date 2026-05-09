@@ -1,0 +1,21 @@
+# dependencies
+backend/node_modules
+frontend/node_modules
+
+# build outputs
+frontend/dist/
+frontend/build/
+backend/dist/
+
+
+.env
+.env.*
+
+.vscode/
+.idea/
+.DS_Store
+
+docker-compose.override.yml
+
+*.log
+logs/
