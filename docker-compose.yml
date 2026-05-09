@@ -1,9 +1,5 @@
 services:
 
-
-  frontend:
-    build: ./frontend
-
   nginx:
     build:
       context: .
