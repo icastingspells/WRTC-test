@@ -1,7 +1,7 @@
 import "./style.css";
 import { io } from "socket.io-client";
 
-const socket = io("/socket.io");
+const socket = io();
 
 const connectBtn = document.getElementById("connectBtn");
 const localLevel = document.getElementById("localmic");
