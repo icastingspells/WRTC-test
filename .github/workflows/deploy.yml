@@ -1,0 +1,43 @@
+name: Deploy to server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+
+          script: |
+            set -e
+
+            cd /app
+
+            echo "Pulling latest code..."
+            git pull origin main
+
+            echo "Creating backend .env..."
+            cat <<EOF > backend/.env
+            TURN_URL=${{ secrets.TURN_URL }}
+            TURN_USER=${{ secrets.TURN_USER }}
+            TURN_PASS=${{ secrets.TURN_PASS }}
+            EOF
+
+            echo "Rebuilding containers..."
+            docker compose down
+            docker compose up -d --build
+
+            echo "Cleanup..."
+            docker system prune -f
