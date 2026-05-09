@@ -1,14 +1,14 @@
 import "./style.css";
 import { io } from "socket.io-client";
 
-const socket = io("https://2.27.29.74:3000");
+const socket = io("http://2.27.29.74:3000");
 
 const connectBtn = document.getElementById("connectBtn");
 const localLevel = document.getElementById("localmic");
 const remoteLevel = document.getElementById("remotemic");
 const remoteAudio = document.getElementById("remoteAudio");
 
-const res = await fetch("https://2.27.29.74:3000/api/ice-config");
+const res = await fetch("http://2.27.29.74:3000/api/ice-config");
 const config = await res.json();
 
 
