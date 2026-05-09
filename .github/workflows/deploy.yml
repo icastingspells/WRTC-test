@@ -26,6 +26,7 @@ jobs:
             cd /app
 
             echo "Pulling latest code..."
+            git config --global --add safe.directory /app
             git pull origin main
 
             echo "Creating backend .env..."
