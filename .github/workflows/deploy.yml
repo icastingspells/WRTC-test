@@ -27,6 +27,7 @@ jobs:
 
             echo "Pulling latest code..."
             git config --global --add safe.directory /app
+            chown -R $(whoami):$(whoami) .git
             git pull origin main
 
             echo "Creating backend .env..."
