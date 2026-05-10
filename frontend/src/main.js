@@ -34,7 +34,7 @@ connectBtn.addEventListener("click", async () => {
   socket.emit("find-partner");
 });
 
-connectBtn.addEventListener("click", async () => {
+disconnectBtn.addEventListener("click", async () => {
     socket.emit("disconnect");
 });
 
