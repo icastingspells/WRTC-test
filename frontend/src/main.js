@@ -34,6 +34,9 @@ connectBtn.addEventListener("click", async () => {
   socket.emit("find-partner");
 });
 
+connectBtn.addEventListener("click", async () => {
+    socket.emit("disconnect");
+});
 
 
 // WebRTC peer connection setup
