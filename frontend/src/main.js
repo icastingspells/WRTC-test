@@ -35,7 +35,7 @@ connectBtn.addEventListener("click", async () => {
 });
 
 disconnectBtn.addEventListener("click", async () => {
-    socket.emit("disconnect");
+    socket.emit("leave-room");
 });
 
 

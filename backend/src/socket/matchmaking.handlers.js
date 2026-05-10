@@ -75,7 +75,7 @@ module.exports = (io, socket) => {
     socket.emit("find-again");
   });
 
-  socket.on("disconnect", () => {
+  socket.on("leave-room", () => {
     removeFromQueue(socket.id);
 
     leaveCurrentRoom(io, socket);
