@@ -1,168 +1,144 @@
 import "./style.css";
 import { io } from "socket.io-client";
+import * as mediasoupClient from "mediasoup-client";
 
 const socket = io();
 
-const connectBtn = document.getElementById("connectBtn");
+const createBtn = document.getElementById("createRoomBtn");
+const copyBtn = document.getElementById("copyLinkBtn");
+const remoteContainer = document.getElementById("remoteContainer");
 const localLevel = document.getElementById("localmic");
-const remoteLevel = document.getElementById("remotemic");
-const remoteAudio = document.getElementById("remoteAudio");
-const nextBtn = document.getElementById("nextBtn");
-const disconnectBtn = document.getElementById("disconnectBtn");
-const res = await fetch("/api/ice-config");
-const config = await res.json();
 
-
+let device;
+let sendTransport;
+let recvTransport;
+let producer;
 let localStream;
-let peer;
+const consumers = new Map();
 let currentRoomId = null;
-let isInitiator = false;
 
-
-// Получаем доступ к микрофону и подключаемся к комнате
-connectBtn.addEventListener("click", async () => {
-   localStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    },
-  });
-
-  visualizeAudio(localStream, localLevel);
-  createPeer();
-  socket.emit("find-partner");
+// Create room via API, push URL, then join
+createBtn?.addEventListener("click", async () => {
+  const res = await fetch("/api/room", { method: "POST" });
+  const data = await res.json();
+  const roomId = data.roomId;
+  history.pushState({}, "", `/room/${roomId}`);
+  await joinRoom(roomId);
 });
 
-disconnectBtn.addEventListener("click", async () => {
-    socket.emit("leave-room");
+// Copy link
+copyBtn?.addEventListener("click", () => {
+  const url = window.location.href;
+  navigator.clipboard.writeText(url);
 });
 
+// On page load if URL contains /room/:id -> show join button or auto-join
+(async function autoJoin() {
+  const path = window.location.pathname;
+  const match = path.match(/\/room\/(.+)$/);
+  if (match) {
+    const roomId = match[1];
+    // show a join button or auto-join:
+    // await joinRoom(roomId);
+  }
+})();
 
-// WebRTC peer connection setup
-function createPeer() {
-  peer = new RTCPeerConnection(config);
-
-  // добавляем микрофон
-  localStream.getTracks().forEach((track) => {
-    peer.addTrack(track, localStream);
+async function joinRoom(roomId) {
+  currentRoomId = roomId;
+  // 1) get router rtpCapabilities + existing producers
+  const joinResp = await new Promise((resolve) => {
+    socket.emit("join-room", { roomId }, resolve);
   });
 
-  // получаем удалённый звук
-  peer.ontrack = (event) => {
-    const remoteStream = event.streams[0];
-    remoteAudio.srcObject = remoteStream;
-    remoteAudio.play();
-    visualizeAudio(remoteStream, remoteLevel);
-  };
+  const { rtpCapabilities, producers } = joinResp;
+  device = new mediasoupClient.Device();
+  await device.load({ routerRtpCapabilities: rtpCapabilities });
 
-  // ICE кандидаты
-  peer.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit("ice-candidate", {
-        roomId: currentRoomId,
-        candidate: event.candidate,
-      });
-    }
-  };
+  // 2) create send transport on server & device
+  const sendParams = await new Promise((resolve) => {
+    socket.emit("createWebRtcTransport", { roomId }, resolve);
+  });
+  sendTransport = device.createSendTransport(sendParams.params);
+  sendTransport.on("connect", ({ dtlsParameters }, cb, err) => {
+    socket.emit("connect-transport", { roomId, transportId: sendTransport.id, dtlsParameters }, (res) => {
+      if (res?.error) return err(res.error);
+      cb();
+    });
+  });
+  sendTransport.on("produce", async ({ kind, rtpParameters }, cb, err) => {
+    socket.emit("produce", { roomId, transportId: sendTransport.id, kind, rtpParameters }, (res) => {
+      if (res?.error) return err(res.error);
+      cb({ id: res.id });
+    });
+  });
+
+  // 3) create recv transport
+  const recvParams = await new Promise((resolve) => {
+    socket.emit("createWebRtcTransport", { roomId }, resolve);
+  });
+  recvTransport = device.createRecvTransport(recvParams.params);
+  recvTransport.on("connect", ({ dtlsParameters }, cb, err) => {
+    socket.emit("connect-transport", { roomId, transportId: recvTransport.id, dtlsParameters }, (res) => {
+      if (res?.error) return err(res.error);
+      cb();
+    });
+  });
+
+  // 4) get local audio and produce
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    visualizeAudio(localStream, localLevel);
+    producer = await sendTransport.produce({ track: localStream.getAudioTracks()[0] });
+  } catch (e) {
+    console.error("getUserMedia/produce error", e);
+    return;
+  }
+
+  // 5) consume existing producers
+  for (const p of producers) {
+    await consumeProducer(roomId, p.id);
+  }
+
+  // 6) listen for new producers
+  socket.on("new-producer", async ({ producerId }) => {
+    await consumeProducer(roomId, producerId);
+  });
+
+  socket.on("peer-left", ({ socketId }) => {
+    // remove related audio elements if needed
+  });
 }
 
-
-socket.on("waiting", () => {
-  console.log("Waiting for partner...");
-  nextBtn.enabled = false;
-});
-
-socket.on("matched", async ({ roomId, initiator }) => {
-  console.log("MATCHED");
-  currentRoomId = roomId;
-  createPeer();
-  connectBtn.style.display = "none";
-  disconnectBtn.style.display = "block";
-  nextBtn.style.display = "block";
-  nextBtn.enabled = true;
-
-  if (initiator) {
-
-    const offer = await peer.createOffer();
-
-    await peer.setLocalDescription(offer);
-
-    socket.emit("offer", {
-      roomId,
-      offer
-    });
-  }
-});
-
-socket.on("offer", async (offer) => {
-
-  console.log("OFFER RECEIVED");
-
-  await peer.setRemoteDescription(offer);
-
-  const answer = await peer.createAnswer();
-
-  await peer.setLocalDescription(answer);
-
-  socket.emit("answer", {
-    roomId: currentRoomId,
-    answer
+async function consumeProducer(roomId, producerId) {
+  // request server to create consumer (server will create paused consumer and return params)
+  const res = await new Promise((resolve) => {
+    socket.emit("consume", { roomId, producerId, rtpCapabilities: device.rtpCapabilities }, resolve);
   });
-});
-
-socket.on("answer", async (answer) => {
-
-  console.log("ANSWER RECEIVED");
-
-  await peer.setRemoteDescription(answer);
-});
-
-socket.on("ice-candidate", async (candidate) => {
-
-  try {
-
-    await peer.addIceCandidate(candidate);
-
-  } catch (e) {
-
-    console.error("ICE ERROR", e);
+  if (res?.error) {
+    console.warn("cannot consume", res);
+    return;
   }
-});
+  const { params } = res;
+  const consumer = await recvTransport.consume(params);
+  const stream = new MediaStream();
+  stream.addTrack(consumer.track);
 
-socket.on("partner-disconnected", () => {
+  const audioEl = document.createElement("audio");
+  audioEl.srcObject = stream;
+  audioEl.autoplay = true;
+  audioEl.controls = false;
+  remoteContainer?.appendChild(audioEl);
 
-  console.log("Partner disconnected");
+  consumers.set(consumer.id, { consumer, el: audioEl });
 
-  if (peer) {
-    peer.close();
-    peer = null;
-  }
+  // resume on server
+  await new Promise((resolve) => {
+    socket.emit("consumer-resume", { roomId, consumerId: consumer.id }, resolve);
+  });
+}
 
-  currentRoomId = null;
-  disconnectBtn.style.display = "none";
-});
-
-nextBtn.addEventListener("click", () => {
-
-  if (peer) {
-    peer.close();
-    peer = null;
-  }
-
-  currentRoomId = null;
-
-  socket.emit("next");
-});
-
-
-socket.on("find-again", () => {
-
-  socket.emit("find-partner");
-});
-
-// визуализация уровня звука
 function visualizeAudio(stream, element) {
+  if (!stream || !element) return;
   const audioContext = new AudioContext();
   const source = audioContext.createMediaStreamSource(stream);
   const analyser = audioContext.createAnalyser();
@@ -172,14 +148,10 @@ function visualizeAudio(stream, element) {
 
   function update() {
     analyser.getByteFrequencyData(dataArray);
-
     let sum = 0;
-
-    for (let i = 0; i < dataArray.length; i++) {
-      sum += dataArray[i];
-    }
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
     const average = sum / dataArray.length;
-    element.style.width = `${average}%`;
+    element.style.width = `${Math.min(100, average)}%`;
     requestAnimationFrame(update);
   }
   update();
